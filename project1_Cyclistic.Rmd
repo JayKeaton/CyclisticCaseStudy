@@ -1,0 +1,538 @@
+---
+title: "R Notebook"
+output:
+  html_document:
+    df_print: paged
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+## Problem
+
+### Business Tasks
+
+Cyclistic is a fictional bike-share company inside Chicago. This company
+tasked us with the analysis of this question:\
+How do annual members and casual riders **use** Cyclistic bikes
+differently?\
+Lets break this business task into sub tasks:
+
+-   Identify and categorize how users use Cyclistic services
+-   See how those usage relate to casual riders and annual members
+-   Identify usage differences and similarities between casual riders
+    and annual members
+
+### Audience (stakeholders in **bold**):
+
+-   **Director of marketing**
+-   Part of analytics team
+-   **Cyclistic executives**
+
+### Data sources:
+
+-   [Cyclistic's first party
+    data](https://divvy-tripdata.s3.amazonaws.com/index.html) from the
+    last 12 months: from march 22 to February 23 Cyclistic is a
+    fictional company. The data is provided by Motivate International
+    Inc. The data contain one row per user's trip. The variables are
+    about:
+
+    -   trip's starting hour and location
+    -   trip's ending hour and location
+    -   customer's membership
+    -   bike type
+
+    The used files are:
+
+    -   2022MM-divvy-tripdata/2022MM-divvy-tripdata.csv with MM the
+        month (03 to 12)
+    -   202209-divvy-tripdata/202209-divvy-publictripdata.csv
+    -   2022MM-divvy-tripdata/2022MM-divvy-tripdata.csv with MM the
+        month (01 to 02)
+
+-   [Chicago ZIP
+    boundaries](https://data.cityofchicago.org/Facilities-Geographic-Boundaries/Boundaries-ZIP-Codes/gdcf-axmw)
+    Contains a map (shapefile) that represents the Chicago divided by
+    ZIP areas
+
+```{r setup}
+dataPath <- 'C:/Users/Propriétaire/Documents/Obsidian Vault/NLP/Data_Analyst_Google_Certificate/Part8of8_Google_Analytic_Capstone/CaseStudy1_Cyclistic/data/unzip'
+knitr::opts_knit$set(root.dir = normalizePath(dataPath)) 
+```
+
+## Analysis
+
+```{r include=FALSE}
+# install.packages("readr")
+# install.packages("skimr")
+#install.packages("tidyverse")
+#install.packages("data.table")
+# install.packages("sf")
+# library("readr")
+library("skimr")
+library(tidyverse)
+library(data.table)
+library(sf)
+library(lubridate)
+library(glue)
+# testData <- read.csv("./202302-divvy-tripdata/202302-divvy-tripdata.csv")
+# skim_without_charts(testData)
+```
+
+```{r include=FALSE}
+isTripFile <- function(filePath){
+  readLines(filePath, n=1) %>% 
+    grepl(pattern = "ride_id|trip_id") 
+}
+# testFileName <- "enterFileName"
+# isTripFile(glue("{dataPath}/{testFileName}"))
+
+dataFileNames <- list.files(recursive = TRUE, pattern = "*.csv") %>%
+  str_split(string = ., pattern = "\n") 
+dataFileNames <- dataFileNames[mapply(isTripFile, dataFileNames)]
+
+tripDataFiles <- dataFileNames %>%
+  grep(x = dataFileNames, pattern = '20(2[2-3])', value = TRUE) %>% #Select years in range 2020-2023
+  grep(x = ., pattern = '20220[1-2]', invert = T, value = T) %>% 
+  grep(pattern = 'station',  x = ., ignore.case = TRUE, invert = TRUE, value = TRUE) %>% #Remove files on stations
+  lapply(fread) %>% #Read data from the selected file
+  rbindlist() #Merge data from selected file
+
+tripData <- tripDataFiles
+rm(tripDataFiles)
+```
+
+```{=html}
+<!--Changes in data model accross the years (not very useful since we only need to study the last year):
+
+* from 01 - 2020 : ride_id,rideable_type,started_at,ended_at,start_station_name,start_station_id,end_station_name,end_station_id,start_lat,start_lng,end_lat,end_lng,member_casual
+!!! column names surrounded by quotes from 09 - 2022
+Change: 
+trip_id -> ride_id
+start_time -> started_at
+end_time -> ended_at
+bikeid -> 0
+tripduration -> 0
+from_station_id -> start_station_id
+from_station_name -> start_station_name
+to_station_id -> end_station_id
+to_station_name -> end_station_name
+usertype -> member_casual
+gender -> 0
+birthyear -> 0
+* from 01 - 2014 : trip_id,start_time,end_time,bikeid,tripduration,from_station_id,from_station_name,to_station_id,to_station_name,usertype,gender,birthyear
+!!! Q2-2019, Q1-2018, with quote around column names sometimes
+Change: starttime, stoptime, birthday -> start_time, stop_time, birthyear
+* from 01 - 2013 : trip_id,starttime,stoptime,bikeid,tripduration,from_station_id,from_station_name,to_station_id,to_station_name,usertype,gender,birthday
+-->
+```
+```{r eval=FALSE, include=FALSE}
+#Unused code sketch to load and convert data from previous years
+#THIS CODE IS DISABLED AND WILL BUG IF ABLED
+
+dateTimeFormat <- c("%m/%d/%Y %H:%M:%S", "%m/%d/%Y %H:%M")
+
+tripDataFiles15_16 <- dataFileNames %>%
+  grep(x = dataFileNames, pattern = '20(1[5-6])', value = TRUE) %>% #Select years in range 2015-2016
+  grep(pattern = 'station',  x = ., ignore.case = TRUE, invert = TRUE, value = TRUE) %>% #Remove files on stations
+  lapply(fread) %>% #Read data from the selected file
+  rbindlist() %>%  #Merge data from selected file
+  rename(
+    started_at = starttime,
+    ended_at = stoptime
+  ) %>%
+  mutate(started_at = parse_date_time(started_at,dateTimeFormat), ended_at = parse_date_time(ended_at,dateTimeFormat)) #Convert datetime string to datetime
+
+tripDataFiles17 <- dataFileNames %>%
+  grep(x = dataFileNames, pattern = '2017', value = TRUE) %>% #Select years 2017
+  grep(pattern = 'station',  x = ., ignore.case = TRUE, invert = TRUE, value = TRUE) %>% #Remove files on stations
+  lapply(fread) %>% #Read data from the selected file
+  rbindlist() %>%  #Merge data from selected file
+  rename(
+    started_at = start_time,
+    ended_at = end_time
+  ) %>%
+  mutate(started_at = parse_date_time(started_at,dateTimeFormat), ended_at = parse_date_time(ended_at,dateTimeFormat)) #Convert datetime string to datetime
+
+tripDataFiles18_19 <- dataFileNames %>%
+  grep(x = dataFileNames, pattern = '20(1[8-9])', value = TRUE) %>% #Select years in range 2014-2019
+  grep(pattern = 'station',  x = ., ignore.case = TRUE, invert = TRUE, value = TRUE) %>% #Remove files on stations
+  lapply(fread) %>% #Read data from the selected file
+  rbindlist() %>%  #Merge data from selected file
+  rename(
+    started_at = start_time,
+    ended_at = end_time
+  )
+
+tripDataFiles <- rbindlist( list(tripDataFiles15_16, tripDataFiles17)) %>%
+  rename(
+    ride_id = trip_id,
+    start_station_id = from_station_id,
+    start_station_name = from_station_name,
+    end_station_id = to_station_id,
+    end_station_name = to_station_name,
+    member_casual = usertype
+  )
+```
+
+```{r include=FALSE}
+# Read in shapefile of Chicago map
+chicago_sf <- st_read(dsn = list.files('./ChicagoBoundariesZIPCodes', full.names = T, pattern = "*.shp")) %>% 
+  st_transform(., 4326)
+
+# Convert to data frame for use with ggplot
+chicago_df <- fortify(chicago_sf) %>% 
+  st_transform(crs = 4326)
+# rm(chicago_sf)
+
+coordinatesPrecision<- 3 #With 3 digits the coordinate precision is around 110m
+chicagoBbox<-st_bbox(chicago_sf)
+
+#List all the coordinates in Chicago up to a selected precision
+chicagoCoordinates <- expand.grid(seq(chicagoBbox$xmin, chicagoBbox$xmax, 0.1^coordinatesPrecision), seq(chicagoBbox$ymin, chicagoBbox$ymax, 0.1^coordinatesPrecision) ) %>% #Cartesian product of chicago lat and long arrays
+  round(. ,coordinatesPrecision) %>%
+  setnames(c("lng","lat")) %>% 
+  mutate(lt = lat, lg= lng) %>% 
+  st_as_sf(coords = c("lg","lt"), crs = 4326)
+
+#Associate every coordinates in chicagoCoordinate to a zone
+coordinateToZoneTable <- st_join(x=chicagoCoordinates, y=chicago_df, join = st_within, left=T) %>% #Coordinate to zone mapping
+  drop_na() %>%
+  as.data.frame() %>% 
+  select(c(lat, lng, objectid))
+
+rm(chicago_sf, chicagoCoordinates, chicagoBbox)
+```
+
+### Data cleaning
+
+#### Removed data:
+
+-   **duplicate** trips
+-   the trips that **last for a minute or less** because it's a canceled
+    trip
+-   the trips that **last for more than a day** because it's likely that
+    the user forgot to return the bike
+-   the trips that had **starting or ending location outside of
+    Chicago** because that's not supposed to be possible
+-   the trips with a duration that are in the **1% longest trips** to
+    make readable the graphs that have tripduration as an axis
+
+#### Data modifications:
+
+-   added **tripduration**
+-   **deteriorated the coordinates** so that the possible number of
+    coordinates inside Chicago is finite
+-   added **day** of the week
+-   added **month**
+-   added Zip **zoneIds** for the trips *starting location* and *ending
+    location*
+-   **ordered** by *station_name* then by *started_at*
+
+```{r include=FALSE}
+processedData <- tripData %>%
+  drop_na(end_lat, end_lng) %>% #Drop trajects without end coordinates
+  unique() %>% #Remove duplicates
+  mutate(tripduration = difftime(ended_at, started_at)) %>%   #Add trips duration
+  filter(tripduration>=60) %>% #Filter trip of less than 1min
+  filter(tripduration<=86400)  #Filter trip of more than 1day
+  
+processedData <- processedData %>% 
+  filter(tripduration<quantile(processedData$tripduration, probs = c(.99))) %>%   #Filter outliers
+  mutate(day = (wday(started_at)-2)%%7 +1) %>% #Add day of the week
+  mutate(month = month(started_at)) %>% #Add month of the year
+  mutate(start_lat = round(start_lat, coordinatesPrecision) , start_lng = round(start_lng, coordinatesPrecision) , end_lat = round(end_lat, coordinatesPrecision) , end_lng = round(end_lng, coordinatesPrecision) ) %>%  #Deteriorate lat, long precision to have less distinct value
+  merge(., coordinateToZoneTable, by.x=c("start_lat", "start_lng"), by.y = c("lat", "lng")) %>% #Add the zone id where the trip started. This also filter the trip that started outside of Chicago
+  setnames(., "objectid", "startZoneId") %>% 
+  merge(., coordinateToZoneTable, by.x=c("end_lat", "end_lng"), by.y = c("lat", "lng")) %>% #Add the zone id where the trip ended. This also filter the trip that ended outside of Chicago
+  setnames(., "objectid", "endZoneId") %>%  
+  setorderv(c("start_station_name","started_at"), c(1,1)) #Order data by station then start time
+  
+rm(tripData, coordinateToZoneTable)
+```
+
+### Usage by time
+
+#### Usage duration
+
+Both casual and member clients trip's duration is around **5 min** but
+members are more concentrated around that duration.
+
+```{r echo=FALSE}
+durationHisto <- hist(as.numeric(processedData$tripduration), plot = F)
+maxFreq <- which.max(durationHisto$counts)
+maxFreqValue <- mean(durationHisto$breaks[c(maxFreq, maxFreq+1)])[1]
+
+ggplot(processedData[member_casual=="casual"], aes(x=tripduration, y =  stat(count / sum(count))))+
+  geom_histogram(aes(fill='casual'), alpha = 0.5)+
+  geom_histogram(data=processedData[member_casual=="member"], aes(fill='member'), alpha = 0.5)+
+  scale_y_continuous(labels = scales::percent)+
+  scale_fill_discrete(name = "Customer types")+
+  labs(x = "Trip duration", y = "Percentage of subset trips", title = "Trip duration by customer type", subtitle = "Trips subsets are based on customer type. The shown percentages are relative to the subset")+
+  geom_vline(xintercept = maxFreqValue)+
+  annotate("text", x = maxFreqValue, y = 0.01, label = as.character(maxFreqValue))
+
+rm(durationHisto, maxFreq, maxFreqValue)
+```
+
+#### Usage throughout the day
+
+Casuals use the service all along the day, with a cliff around 5:30 and
+a **peak around 17:30**\
+Member's graph is similar casual's graph with two variations:
+
+-   another **peaks around 8:00**
+-   less usage during work hours
+
+```{r echo=FALSE}
+timeData<-processedData[,c("started_at", "member_casual")] %>% 
+  mutate(time= ymd_hms(paste0(ymd("2000-01-01"), format(started_at, "%H:%M:%S"))) ) #We set all the observations to the same day
+
+morningCommuteHour<-ymd_hms("2000-01-01 08:00:00")
+eveningCommuteHour<-ymd_hms("2000-01-01 17:30:00")
+
+ggplot(timeData[member_casual=="casual"], aes(x=time, y =  stat(count / sum(count))) )+
+  geom_histogram(aes(fill='casual'), alpha = 0.5)+
+  geom_histogram(data=timeData[member_casual=="member"], aes(fill='member'), alpha = 0.5)+
+  scale_y_continuous(labels = scales::percent)+
+  scale_x_datetime(date_labels = "%H:%M", date_breaks = "2 hour")+
+  scale_fill_discrete(name = "Customer type")+
+  labs(x = "Hour of day", y = "Percentage of subset trips", title = "Loaning hour by customer type", subtitle = "Trips subsets are based on customer type. The shown percentages are relative to the subset")+
+  geom_vline(xintercept = morningCommuteHour)+
+  annotate("text", x = morningCommuteHour, y = 0.09, label = "Morning commute hour")+
+  geom_vline(xintercept = eveningCommuteHour)+
+  annotate("text", x = eveningCommuteHour, y = 0.09, label = "Evening commute hour")
+
+rm(timeData, morningCommuteHour, eveningCommuteHour)
+```
+
+#### Usage throughout the week
+
+*Casuals* use Cyclistic a lot more during the **weekend** than during
+the workweek. On the opposite, *members* have a close to **constant
+usage during the whole week** but they use the service slightly more
+during the workweek than during the weekend.
+
+```{r echo=FALSE}
+day_labels <- c("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+ggplot(processedData[member_casual=="casual"], aes(x = day, y = stat(count/sum(count)) )) +
+  geom_bar(aes(fill='casual'), alpha = 0.5) +
+  geom_bar(data = processedData[member_casual=="member"], aes(fill='member'), alpha = 0.5)+
+  scale_fill_discrete(name = "Customer type")+
+  labs(x = "Day of week", y = "Percentage of subset trips", title = "Loaning day by customer type", subtitle = "Trips subsets are based on customer type. The shown percentages are relative to the subset")+
+  scale_x_continuous(breaks = seq(1, 7, 1), labels = day_labels)+
+  scale_y_continuous(labels = scales::percent)+
+  geom_vline(xintercept = 5.5)+
+  annotate("text", x = 3, y = 0.21, label = "Workweek")+
+  annotate("text", x = 6.5, y = 0.21, label = "Weekend")
+```
+
+#### Usage throughout the year
+
+*Casuals* enjoy Cyclistic during the **sunny months** (more than 15%
+usage during June to august) and avoid it during the cold ones (less
+than 2.5% usage during the December to February).\
+*Members* follow the same trend but they are much more **constant** on
+their usage with only December under 4% usage, and no month above 12.5%
+usage.
+
+```{r echo=FALSE}
+ggplot(processedData[member_casual=="casual"], aes(x = month, y = stat(count/sum(count)) )) +
+  geom_bar(aes(fill='casual'), alpha = 0.5) +
+  geom_bar(data = processedData[member_casual=="member"], aes(fill='member'), alpha = 0.5)+
+  labs(x = "Months", y = "Percentage of subset trips", title = "Loaning months by customer type", subtitle = "Trips subsets are based on customer type. The shown percentages are relative to the subset")+
+  scale_fill_discrete(name = "Customer type")+
+  scale_x_continuous(breaks = seq(1, 12, 1), labels = month.abb)+
+  scale_y_continuous(labels = scales::percent)+
+  geom_vline(xintercept = 3.166)+
+  geom_vline(xintercept = 6.166)+
+  geom_vline(xintercept = 9.166)+
+  geom_vline(xintercept = 12.166)+
+  annotate("text", x = 1.666, y = 0.18, label = "Winter")+
+  annotate("text", x = 4.666, y = 0.18, label = "Spring")+
+  annotate("text", x = 7.666, y = 0.18, label = "Summer")+
+  annotate("text", x = 10.666, y = 0.18, label = "Autumn")
+```
+
+### Usage by location
+
+#### Location alone
+
+At first glance, both members and casuals make a similar usage of
+Cyclistic in term of location alone: they are both centered on the
+**Lincoln park** area of ZIP code 60614. However, by analyzing the
+difference between member usage we can see that:
+
+-   *casuals* prefer **Streeterville** neighborhood, **Lincoln park**
+    and **South Loop** a bit more
+
+-   *members* prefer **West Loop** and **Woodlawn** a bit more
+
+Those tendencies remain the same during the whole week, but get
+reinforced for Streeterville during the weekend.\
+We only display the graphs based on the trip ending zone because the
+graph based on trip beginning zone are similar.
+
+```{r echo=FALSE, warning=FALSE}
+#Function that plot:
+#   - station usage in Chicago districts 
+#   - station usage difference between user types in Chicago districts
+plot_chicago_data_memberCasualDiff <- function(chicago_data, chicago_map, zoneType, contextualisation){
+  customerTypeByZoneType <- chicago_data %>% 
+    group_by(.data[[zoneType]], member_casual) %>%
+    summarize(count = n()) %>% 
+    pivot_wider(names_from = member_casual, values_from = count, values_fill = 0)
+  
+  chicago_map_with_customerTypeCount <- merge(chicago_map, customerTypeByZoneType, by.x=("objectid"), by.y=(zoneType))
+  
+  plots<-list()
+    
+  p<-ggplot(data = chicago_map_with_customerTypeCount) +
+    geom_sf(aes(fill=((member+casual)/sum(member+casual))))+
+    scale_fill_viridis_c(na.value = "pink",
+                         labels = scales::percent_format(),
+                         name = "% of usage")+
+    theme(axis.text.x = element_text(angle = 45))+
+    labs(title = glue("Chicago zone usage {contextualisation}")) 
+  plots[[1]]<-p
+  
+  p<-ggplot(data = chicago_map_with_customerTypeCount) +
+    geom_sf(aes(fill=( (member)/sum(member) - (casual)/sum(casual) )))+
+    scale_fill_gradient2(low = "red",
+                         mid = "lightgray",
+                         high = "blue",
+                         labels = scales::percent_format(),
+                         name = "% of relative usage difference: member - casual")+
+    theme(axis.text.x = element_text(angle = 45))+
+    labs(title = glue("Chicago zone relative usage difference between users {contextualisation}"), subtitle = "The difference is calculated as member usage minus casual usage")  
+  plots[[2]]<-p
+  
+  return(plots)
+}
+
+# processedData %>% 
+#   plot_chicago_data_memberCasualDiff(., chicago_df, "startZoneId", "for trip beginning")
+
+processedData %>% 
+  plot_chicago_data_memberCasualDiff(., chicago_df, "endZoneId", "for trip end")
+```
+
+#### Location during workweek
+
+Casuals are slightly more concentrated on Lincoln Park than members
+during the workweek
+
+```{r echo=FALSE, warning=FALSE}
+# processedData %>% 
+#   filter(day %in% c(1:5) ) %>% 
+#   plot_chicago_data_memberCasualDiff(., chicago_df, "startZoneId", "for worweek trip beginning")
+
+processedData %>%
+  filter(day %in% c(1:5) ) %>%
+  plot_chicago_data_memberCasualDiff(., chicago_df, "endZoneId", "for workweek trip end")
+```
+
+#### Location during weekend
+
+Members are slightly more concentrated on Lincoln Park during the
+weekend
+
+```{r echo=FALSE, warning=FALSE}
+# processedData %>% 
+#   filter(day %in% c(6:7) ) %>%  
+#   plot_chicago_data_memberCasualDiff(., chicago_df, "startZoneId", "for weekend trip beginning")
+
+processedData %>%
+  filter(day %in% c(6:7) ) %>% 
+  plot_chicago_data_memberCasualDiff(., chicago_df, "endZoneId", "for weekend trip end")
+```
+
+### Social usage
+
+We consider that, if the user begin their trip in the **same minute and
+station** as another user, then he makes a 'social usage' of Cyclistic
+services.\
+This measure is **far from exact** because two user that don't know each
+others can take a bike in the same minute and station. Or two user that
+went on a bike trip could take more than a minute to lend the bike, or
+they could start in different stations and meet while on bike.\
+However uncertain, the results are interesting. It shows that *casuals*
+use socially Cyclistic's services **35%** of the time while *members*
+have a social usage only **20%** of the time.
+
+```{r echo=FALSE}
+socialData<-processedData[start_station_name!=""] %>% 
+  mutate(social = (start_station_name==lag(start_station_name) & abs(difftime(started_at,lag(started_at)))<60) | (start_station_name==lag(start_station_name) & (abs(difftime(started_at,lead(started_at))))<60)) %>%  #Add a social column that is True if the user begins their trip in the same minute and station as another user
+  drop_na()
+
+socialMemberPercent = round(mean(socialData[member_casual=="member"]$social), 3)
+socialCasualPercent = round(mean(socialData[member_casual=="casual"]$social), 3)
+
+ggplot(socialData, aes(y = member_casual, fill = social)) +
+  geom_bar(position = "fill")+
+  scale_x_continuous(labels = scales::percent)+
+  scale_fill_discrete(name = "Social Usage")+
+  labs(x = "Percentage of social usage", y = "Customer type", title = "Social usage by customer type")+
+  geom_vline(xintercept = socialMemberPercent)+
+  annotate("text", x = socialMemberPercent, y = 2, label = glue("{socialMemberPercent*100}%"))+
+  geom_vline(xintercept = socialCasualPercent)+
+  annotate("text", x = socialCasualPercent, y = 1, label = glue("{socialCasualPercent*100}%"))
+
+rm(socialData, socialMemberPercent, socialCasualPercent)
+```
+
+## Recommendations
+
+The analysis aims at uncovering the differences between "casual" and
+"members" clients in order to understand what could **convince a
+"casual" client to become a "member" client**.\
+The *"casual" offers* regroup single-ride and full day pass. This offer
+is about **short term engagement.**\
+The *"member" offer* contain annual membership. This offer is about
+**long term engagement**.\
+In order to convert "casual" clients into "member" clients, we could try
+to develop **new "transition" offer** that is about *mid term
+engagement*. This offer would be developed to be **attractive to
+"casual" clients** while being **unattractive to "member"** client since
+we don't want to convert members into casuals. Based on those
+reflections and the previously seen data, here is 3 recommendations:
+
+-   Creation of a **summer pass** since it's the season that interest
+    casual the most. The member shall keep it's current offer to have
+    access to the service during the whole year.
+-   Creation of an **annual leisure pass** that gives:
+    -   full access during weekends
+
+    -   access between 19h-5h during workweek
+
+        Those time ranges interest the casuals. The member shall keep
+        his current offer to have access to the two commuting time
+        range.
+-   On annual passes, allow the member to **loan a 2nd bike for free**
+    \~3 times per week. This could make long time offers more attractive
+    to casuals and at the same times it is a way for non customers to
+    test the service in very favorable conditions (social usage).
+
+## Appendix
+
+### Unrelated findings
+
+```{r echo=FALSE}
+processedData %>% 
+  select(c(startZoneId, endZoneId)) %>% 
+  pivot_longer(c(startZoneId, endZoneId), names_to = "zoneType", values_to = "zoneId") %>% 
+  group_by(zoneId, zoneType) %>% 
+  summarize(count = n()) %>% 
+  pivot_wider(names_from = zoneType, values_from = count, values_fill = 0) %>% 
+  merge(chicago_df, ., by.x=("objectid"), by.y=("zoneId")) %>% 
+  ggplot(data = .) +
+    geom_sf(aes(fill=( (endZoneId - startZoneId) )))+
+    scale_fill_gradient2(low = "orange",
+                         mid = "lightgray",
+                         high = "green",
+                         name = "Number of bike left in the zone")+
+    theme(axis.text.x = element_text(angle = 45)) %>% 
+  labs(title = "Chicago zone difference between bike take and bike leave")  
+```
