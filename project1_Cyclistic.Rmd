@@ -16,7 +16,18 @@ Cyclistic is a fictional bike-share company inside Chicago. This company
 tasked us with the analysis of this question:\
 How do annual members and casual riders **use** Cyclistic bikes
 differently?\
-Lets break this business task into sub tasks:
+The *"casual" riders* are the clients that use single-ride and full day
+pass. Those offer are about **short term engagement.**\
+The *"member" riders* are the clients that buy annual membership. This
+offer is about **long term engagement**.\
+In order to convert "casual" clients into "member" clients, we could try
+to develop **new "transition" offer** that is about *mid term
+engagement*. This offer would be developed to be **attractive to
+"casual" clients** while being **unattractive to "member"** clients
+since we don't want to convert members into casuals. In order to find
+opportunities for said new transition offers, we will analyse the riders
+behaviors.\
+Let's break this business task into sub tasks:
 
 -   Identify and categorize how users use Cyclistic services
 -   See how those usage relate to casual riders and annual members
@@ -31,10 +42,10 @@ Lets break this business task into sub tasks:
 
 ### Data sources:
 
--   [Cyclistic's first party
+-   [Cyclistic's first-party
     data](https://divvy-tripdata.s3.amazonaws.com/index.html) from the
-    last 12 months: from march 22 to February 23 Cyclistic is a
-    fictional company. The data is provided by Motivate International
+    last 12 months: from march 22 to February 23. Cyclistic is a
+    fictional company so the data is provided by Motivate International
     Inc. The data contain one row per user's trip. The variables are
     about:
 
@@ -43,7 +54,7 @@ Lets break this business task into sub tasks:
     -   customer's membership
     -   bike type
 
-    The used files are:
+    The files used are:
 
     -   2022MM-divvy-tripdata/2022MM-divvy-tripdata.csv with MM the
         month (03 to 12)
@@ -53,11 +64,11 @@ Lets break this business task into sub tasks:
 
 -   [Chicago ZIP
     boundaries](https://data.cityofchicago.org/Facilities-Geographic-Boundaries/Boundaries-ZIP-Codes/gdcf-axmw)
-    Contains a map (shapefile) that represents the Chicago divided by
-    ZIP areas
+    Contains a shapefile map that represents the Chicago divided by ZIP
+    areas
 
 ```{r setup}
-dataPath <- 'C:/Users/Propriétaire/Documents/Obsidian Vault/NLP/Data_Analyst_Google_Certificate/Part8of8_Google_Analytic_Capstone/CaseStudy1_Cyclistic/data/unzip'
+dataPath <- 'absolutePath'
 knitr::opts_knit$set(root.dir = normalizePath(dataPath)) 
 ```
 
@@ -221,14 +232,14 @@ rm(chicago_sf, chicagoCoordinates, chicagoBbox)
 
 #### Data modifications:
 
--   added **tripduration**
+-   added **trip duration**
 -   **deteriorated the coordinates** so that the possible number of
     coordinates inside Chicago is finite
 -   added **day** of the week
 -   added **month**
--   added Zip **zoneIds** for the trips *starting location* and *ending
+-   added ZIP **zone IDs** for the trips *starting location* and *ending
     location*
--   **ordered** by *station_name* then by *started_at*
+-   **ordered** by *station name* and then by *start time*
 
 ```{r include=FALSE}
 processedData <- tripData %>%
@@ -259,12 +270,12 @@ rm(tripData, coordinateToZoneTable)
 Both casual and member clients trip's duration is around **5 min** but
 members are more concentrated around that duration.
 
-```{r echo=FALSE}
+```{r echo=FALSE, message=FALSE, warning=FALSE}
 durationHisto <- hist(as.numeric(processedData$tripduration), plot = F)
 maxFreq <- which.max(durationHisto$counts)
 maxFreqValue <- mean(durationHisto$breaks[c(maxFreq, maxFreq+1)])[1]
 
-ggplot(processedData[member_casual=="casual"], aes(x=tripduration, y =  stat(count / sum(count))))+
+ggplot(processedData[member_casual=="casual"], aes(x=tripduration, y =  after_stat(count / sum(count))))+
   geom_histogram(aes(fill='casual'), alpha = 0.5)+
   geom_histogram(data=processedData[member_casual=="member"], aes(fill='member'), alpha = 0.5)+
   scale_y_continuous(labels = scales::percent)+
@@ -278,14 +289,14 @@ rm(durationHisto, maxFreq, maxFreqValue)
 
 #### Usage throughout the day
 
-Casuals use the service all along the day, with a cliff around 5:30 and
-a **peak around 17:30**\
+Casuals use the service all along the day, with a cliff around 5:30 AM
+and a **peak around 5:30 PM**\
 Member's graph is similar casual's graph with two variations:
 
--   another **peaks around 8:00**
--   less usage during work hours
+-   another **peak around 8:00 AM**
+-   less usage during working hours
 
-```{r echo=FALSE}
+```{r echo=FALSE, message=FALSE, warning=FALSE}
 timeData<-processedData[,c("started_at", "member_casual")] %>% 
   mutate(time= ymd_hms(paste0(ymd("2000-01-01"), format(started_at, "%H:%M:%S"))) ) #We set all the observations to the same day
 
@@ -334,9 +345,9 @@ ggplot(processedData[member_casual=="casual"], aes(x = day, y = stat(count/sum(c
 *Casuals* enjoy Cyclistic during the **sunny months** (more than 15%
 usage during June to august) and avoid it during the cold ones (less
 than 2.5% usage during the December to February).\
-*Members* follow the same trend but they are much more **constant** on
-their usage with only December under 4% usage, and no month above 12.5%
-usage.
+*Members* follow the same trend, but their usage is much more
+**consistant**, with usage under 4% only in December and no month with
+usage above 12.5%.
 
 ```{r echo=FALSE}
 ggplot(processedData[member_casual=="casual"], aes(x = month, y = stat(count/sum(count)) )) +
@@ -356,9 +367,72 @@ ggplot(processedData[member_casual=="casual"], aes(x = month, y = stat(count/sum
   annotate("text", x = 10.666, y = 0.18, label = "Autumn")
 ```
 
-### Usage by location
+### Social usage
 
-#### Location alone
+We consider that, if the user begin their trip in the **same minute and
+station** as another user, then he makes a 'social usage' of Cyclistic
+services.\
+This measure is **far from exact** because two user that don't know each
+others can take a bike in the same minute and station. Or two user that
+went on a bike trip could take more than a minute to lend the bike, or
+they could start in different stations and meet while on bike.\
+However uncertain, the results are interesting. It shows that *casuals*
+use socially Cyclistic's services **35%** of the time while *members*
+have a social usage only **20%** of the time.
+
+```{r echo=FALSE}
+socialData<-processedData[start_station_name!=""] %>% 
+  mutate(social = (start_station_name==lag(start_station_name) & abs(difftime(started_at,lag(started_at)))<60) | (start_station_name==lag(start_station_name) & (abs(difftime(started_at,lead(started_at))))<60)) %>%  #Add a social column that is True if the user begins their trip in the same minute and station as another user
+  drop_na()
+
+socialMemberPercent = round(mean(socialData[member_casual=="member"]$social), 3)
+socialCasualPercent = round(mean(socialData[member_casual=="casual"]$social), 3)
+
+ggplot(socialData, aes(y = member_casual, fill = social)) +
+  geom_bar(position = "fill")+
+  scale_x_continuous(labels = scales::percent)+
+  scale_fill_discrete(name = "Social Usage")+
+  labs(x = "Percentage of social usage", y = "Customer type", title = "Social usage by customer type")+
+  geom_vline(xintercept = socialMemberPercent)+
+  annotate("text", x = socialMemberPercent, y = 2, label = glue("{socialMemberPercent*100}%"))+
+  geom_vline(xintercept = socialCasualPercent)+
+  annotate("text", x = socialCasualPercent, y = 1, label = glue("{socialCasualPercent*100}%"))
+
+rm(socialData, socialMemberPercent, socialCasualPercent)
+```
+
+## Recommendations
+
+The analysis aims at uncovering the differences between "casual" and
+"members" clients in order to understand what could **convince a
+"casual" client to become a "member" client**.\
+To achieve this goal, we will make 3 recommendations that aims at
+producing *transitional offer* for casuals toward annual pass or *making
+the annual pass more interesting for casual*. Those recommendations are:
+
+-   Creation of a **summer pass** since it's the season that interest
+    casual the most. The member shall keep it's current offer to have
+    access to the service during the whole year.
+-   Creation of an **annual leisure pass** that gives:
+    -   full access during weekends
+
+    -   access between 19h-5h during workweek
+
+        Those time ranges interest the casuals. The member shall keep
+        his current offer to have access to the two commuting time
+        range.
+-   On annual passes, allow the member to **loan a 2nd bike for free**
+    \~3 times per week. This could make long time offers more attractive
+    to casuals and at the same times it is a way for non customers to
+    test the service in very favorable conditions (social usage).
+
+## Appendix
+
+### Unused findings
+
+#### Usage by location
+
+##### Location alone
 
 At first glance, both members and casuals make a similar usage of
 Cyclistic in term of location alone: they are both centered on the
@@ -370,12 +444,15 @@ difference between member usage we can see that:
 
 -   *members* prefer **West Loop** and **Woodlawn** a bit more
 
-Those tendencies remain the same during the whole week, but get
-reinforced for Streeterville during the weekend.\
+These tendencies remain the same during the week, but get reinforced for
+Streeterville during the weekend.\
 We only display the graphs based on the trip ending zone because the
 graph based on trip beginning zone are similar.
 
-```{r echo=FALSE, warning=FALSE}
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+options(dplyr.summarise.inform = FALSE)
+
 #Function that plot:
 #   - station usage in Chicago districts 
 #   - station usage difference between user types in Chicago districts
@@ -419,7 +496,7 @@ processedData %>%
   plot_chicago_data_memberCasualDiff(., chicago_df, "endZoneId", "for trip end")
 ```
 
-#### Location during workweek
+##### Location during workweek
 
 Casuals are slightly more concentrated on Lincoln Park than members
 during the workweek
@@ -434,7 +511,7 @@ processedData %>%
   plot_chicago_data_memberCasualDiff(., chicago_df, "endZoneId", "for workweek trip end")
 ```
 
-#### Location during weekend
+##### Location during weekend
 
 Members are slightly more concentrated on Lincoln Park during the
 weekend
@@ -449,75 +526,7 @@ processedData %>%
   plot_chicago_data_memberCasualDiff(., chicago_df, "endZoneId", "for weekend trip end")
 ```
 
-### Social usage
-
-We consider that, if the user begin their trip in the **same minute and
-station** as another user, then he makes a 'social usage' of Cyclistic
-services.\
-This measure is **far from exact** because two user that don't know each
-others can take a bike in the same minute and station. Or two user that
-went on a bike trip could take more than a minute to lend the bike, or
-they could start in different stations and meet while on bike.\
-However uncertain, the results are interesting. It shows that *casuals*
-use socially Cyclistic's services **35%** of the time while *members*
-have a social usage only **20%** of the time.
-
-```{r echo=FALSE}
-socialData<-processedData[start_station_name!=""] %>% 
-  mutate(social = (start_station_name==lag(start_station_name) & abs(difftime(started_at,lag(started_at)))<60) | (start_station_name==lag(start_station_name) & (abs(difftime(started_at,lead(started_at))))<60)) %>%  #Add a social column that is True if the user begins their trip in the same minute and station as another user
-  drop_na()
-
-socialMemberPercent = round(mean(socialData[member_casual=="member"]$social), 3)
-socialCasualPercent = round(mean(socialData[member_casual=="casual"]$social), 3)
-
-ggplot(socialData, aes(y = member_casual, fill = social)) +
-  geom_bar(position = "fill")+
-  scale_x_continuous(labels = scales::percent)+
-  scale_fill_discrete(name = "Social Usage")+
-  labs(x = "Percentage of social usage", y = "Customer type", title = "Social usage by customer type")+
-  geom_vline(xintercept = socialMemberPercent)+
-  annotate("text", x = socialMemberPercent, y = 2, label = glue("{socialMemberPercent*100}%"))+
-  geom_vline(xintercept = socialCasualPercent)+
-  annotate("text", x = socialCasualPercent, y = 1, label = glue("{socialCasualPercent*100}%"))
-
-rm(socialData, socialMemberPercent, socialCasualPercent)
-```
-
-## Recommendations
-
-The analysis aims at uncovering the differences between "casual" and
-"members" clients in order to understand what could **convince a
-"casual" client to become a "member" client**.\
-The *"casual" offers* regroup single-ride and full day pass. This offer
-is about **short term engagement.**\
-The *"member" offer* contain annual membership. This offer is about
-**long term engagement**.\
-In order to convert "casual" clients into "member" clients, we could try
-to develop **new "transition" offer** that is about *mid term
-engagement*. This offer would be developed to be **attractive to
-"casual" clients** while being **unattractive to "member"** client since
-we don't want to convert members into casuals. Based on those
-reflections and the previously seen data, here is 3 recommendations:
-
--   Creation of a **summer pass** since it's the season that interest
-    casual the most. The member shall keep it's current offer to have
-    access to the service during the whole year.
--   Creation of an **annual leisure pass** that gives:
-    -   full access during weekends
-
-    -   access between 19h-5h during workweek
-
-        Those time ranges interest the casuals. The member shall keep
-        his current offer to have access to the two commuting time
-        range.
--   On annual passes, allow the member to **loan a 2nd bike for free**
-    \~3 times per week. This could make long time offers more attractive
-    to casuals and at the same times it is a way for non customers to
-    test the service in very favorable conditions (social usage).
-
-## Appendix
-
-### Unrelated findings
+#### Unrelated findings
 
 ```{r echo=FALSE}
 processedData %>% 
@@ -534,5 +543,5 @@ processedData %>%
                          high = "green",
                          name = "Number of bike left in the zone")+
     theme(axis.text.x = element_text(angle = 45)) %>% 
-  labs(title = "Chicago zone difference between bike take and bike leave")  
+  labs(title = "Chicago zone difference between bike take and bike leave over the year")  
 ```
